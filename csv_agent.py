@@ -6,6 +6,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from pandasai import Agent
 import pandasai as pai
 from datetime import datetime
+from pandasai import SmartDatalake
+import json
 
 # Page configuration
 st.set_page_config(
@@ -34,6 +36,30 @@ st.markdown("""
         background-color: #f5f5f5;
         align-self: flex-start;
         margin-right: 20%;
+    }
+    .judge-verdict {
+        background-color: #fff3e0;
+        border-left: 4px solid #ff9800;
+        padding: 0.8rem;
+        border-radius: 0.3rem;
+        margin: 0.5rem 0;
+        font-size: 0.9rem;
+    }
+    .judge-verdict.approved {
+        background-color: #e8f5e8;
+        border-left-color: #4caf50;
+    }
+    .judge-verdict.rejected {
+        background-color: #ffebee;
+        border-left-color: #f44336;
+    }
+    .explanation-section {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 0.3rem;
+        padding: 0.8rem;
+        margin: 0.5rem 0;
+        font-size: 0.85rem;
     }
     .message-time {
         font-size: 0.8rem;
@@ -99,6 +125,13 @@ class ExcelChatBot:
                 google_api_key=os.getenv("GOOGLE_API_KEY")
             )
             
+            # Initialize judge model (using same model but with different temperature for consistency)
+            self.judge_model = ChatGoogleGenerativeAI(
+                model="gemini-2.5-flash-preview-05-20",
+                temperature=0.1,  # Lower temperature for more consistent judging
+                google_api_key=os.getenv("GOOGLE_API_KEY")
+            )
+            
             # Initialize PandasAI LLM
             self.pandas_llm = self.chat_model
             
@@ -106,37 +139,32 @@ class ExcelChatBot:
             st.error(f"Error initializing models: {str(e)}")
             st.stop()
     
-    def load_excel_file(self, uploaded_file):
-        """Load and process Excel file with multiple sheets"""
+    def load_excel_files(self, uploaded_files):
+        """Load and process multiple Excel files, returning a flattened dict of DataFrames"""
         try:
-            # Save uploaded file temporarily
-            with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
-                tmp_file.write(uploaded_file.getvalue())
-                tmp_file_path = tmp_file.name
-            
-            # Read all sheets from Excel file
-            excel_file = pd.ExcelFile(tmp_file_path)
-            sheet_names = excel_file.sheet_names
-            
-            # Create dictionary of dataframes for each sheet
-            dataframes = {}
-            for sheet_name in sheet_names:
-                try:
-                    df = pd.read_excel(tmp_file_path, sheet_name=sheet_name)
-                    # Only include sheets with data
-                    if not df.empty:
-                        dataframes[sheet_name] = df
-                except Exception as e:
-                    st.warning(f"Could not read sheet '{sheet_name}': {str(e)}")
-                    continue
-            
-            # Clean up temporary file
-            os.unlink(tmp_file_path)
-            
-            return dataframes if dataframes else None
-            
+            all_dataframes = {}
+            for uploaded_file in uploaded_files:
+                # Save uploaded file temporarily
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp_file:
+                    tmp_file.write(uploaded_file.getvalue())
+                    tmp_file_path = tmp_file.name
+                # Read all sheets
+                excel_file = pd.ExcelFile(tmp_file_path)
+                sheet_names = excel_file.sheet_names
+                for sheet_name in sheet_names:
+                    try:
+                        df = pd.read_excel(tmp_file_path, sheet_name=sheet_name)
+                        if not df.empty:
+                            key = f"{uploaded_file.name} - {sheet_name}"
+                            all_dataframes[key] = df
+                    except Exception as e:
+                        st.warning(f"Could not read sheet '{sheet_name}' from {uploaded_file.name}: {str(e)}")
+                        continue
+                # Clean up temp file
+                os.unlink(tmp_file_path)
+            return all_dataframes if all_dataframes else None
         except Exception as e:
-            st.error(f"Error loading Excel file: {str(e)}")
+            st.error(f"Error loading Excel files: {str(e)}")
             return None
     
     def is_data_related_query(self, query):
@@ -166,49 +194,202 @@ class ExcelChatBot:
             except Exception as e:
                 st.error(f"Error checking query type: {str(e)}")
                 return False
-    
-    def chat_with_data(self, dataframes_dict, query):
-        """Chat with Excel data using PandasAI with multiple dataframes"""
+
+    def judge_response_quality(self, query, response, explanation, dataframes_dict):
+        """
+        Use LLM as a judge to verify the quality and accuracy of the response
+        """
         try:
-            # Prepare dataframes list and descriptions
-            dataframes_list = []
-            descriptions = []
-            
+            # Create context about available data
+            data_context = ""
             for sheet_name, df in dataframes_dict.items():
-                dataframes_list.append(df)
-                # Create description for each sheet
-                description = f"Sheet '{sheet_name}': Contains {len(df)} rows and {len(df.columns)} columns. Columns: {', '.join(df.columns.tolist()[:5])}{'...' if len(df.columns) > 5 else ''}."
-                descriptions.append(description)
+                data_context += f"\nSheet '{sheet_name}': {len(df)} rows, {len(df.columns)} columns\n"
+                data_context += f"Columns: {', '.join(df.columns.tolist())}\n"
+                # Add sample data for first few rows
+                data_context += f"Sample data (first 3 rows):\n{df.head(3).to_string()}\n"
+                data_context += "-" * 50 + "\n"
             
-            # Combine descriptions
-            combined_description = "Excel file with multiple sheets: " + " | ".join(descriptions)
-            
-            # Create PandasAI agent with multiple dataframes
-            agent = Agent(
-                dataframes_list, 
-                config={"llm": self.pandas_llm, 'verbose':True},
-                description=combined_description
-            )
-            
-            # Get response from PandasAI
-            response = agent.chat(query)
-            
-            # Handle case when PandasAI returns None or empty response
-            if response is None or (isinstance(response, str) and response.strip() == ""):
-                fallback_response = self.generate_fallback_response(dataframes_dict, query)
-                return {"type": "text", "content": fallback_response}
-            
-            # Check if response is a DataFrame
-            if isinstance(response, pd.DataFrame):
-                return {"type": "dataframe", "content": response}
+            # Format response content for judge
+            if isinstance(response, dict):
+                if response.get("type") == "dataframe":
+                    response_content = f"DataFrame with {len(response['content'])} rows and {len(response['content'].columns)} columns:\n{response['content'].to_string()}"
+                else:
+                    response_content = str(response.get("content", ""))
             else:
-                return {"type": "text", "content": str(response)}
+                response_content = str(response)
             
+            judge_prompt = f"""
+    You are an expert data analyst judge. Your task is to evaluate the quality and accuracy of a data analysis response.
+
+    **CONTEXT - Available Data:**
+    {data_context}
+
+    **USER QUERY:**
+    {query}
+
+    **AI RESPONSE:**
+    {response_content}
+
+    **AI EXPLANATION OF APPROACH:**
+    {explanation}
+
+    **EVALUATION CRITERIA:**
+    Please evaluate the response based on:
+    1. **Accuracy**: Does the response correctly address the user's query?
+    2. **Completeness**: Does the response provide sufficient information?
+    3. **Data Usage**: Does the response appropriately use the available data?
+    4. **Methodology**: Is the analytical approach sound and well-explained?
+    5. **Clarity**: Is the response clear and understandable?
+
+    **REQUIRED OUTPUT FORMAT:**
+    Respond with ONLY a valid JSON object (no markdown formatting, no code blocks, no additional text):
+
+    {{
+        "verdict": "APPROVED" or "REJECTED",
+        "confidence_score": <number between 0.0 and 1.0>,
+        "reasoning": "<detailed explanation of your judgment>",
+        "issues_found": ["<list of specific issues if any>"],
+        "suggestions": ["<list of improvement suggestions if any>"]
+    }}
+
+    **IMPORTANT NOTES:**
+    - APPROVED: Response is accurate, complete, and properly addresses the query
+    - REJECTED: Response has significant issues, inaccuracies, or doesn't address the query properly
+    - Be strict but fair in your evaluation
+    - Consider both the response content and the explanation of methodology
+    - Provide specific, actionable feedback in reasoning and suggestions
+    - Return ONLY the JSON object without any markdown formatting or code blocks
+    """
+
+            # Get judgment from LLM
+            judge_response = self.judge_model.invoke(judge_prompt)
+            
+            # Clean the response content to handle markdown code blocks
+            response_content = judge_response.content.strip()
+            
+            # More robust cleaning of markdown code blocks using regex
+            import re
+            
+            # Remove markdown code blocks - handles ```json, ```, and variations
+            response_content = re.sub(r'^```(?:json)?\s*\n?', '', response_content, flags=re.MULTILINE)
+            response_content = re.sub(r'\n?```[ \t]*$', '', response_content, flags=re.MULTILINE)
+            
+            # Additional cleanup for any remaining backticks or whitespace
+            response_content = response_content.strip('`').strip()
+            
+            # Parse JSON response
+            try:
+                judgment = json.loads(response_content)
+                
+                # Validate required fields and set defaults if missing
+                if "verdict" not in judgment:
+                    judgment["verdict"] = "UNKNOWN"
+                if "confidence_score" not in judgment:
+                    judgment["confidence_score"] = 0.5
+                if "reasoning" not in judgment:
+                    judgment["reasoning"] = "No reasoning provided"
+                if "issues_found" not in judgment:
+                    judgment["issues_found"] = []
+                if "suggestions" not in judgment:
+                    judgment["suggestions"] = []
+                
+                # Ensure confidence_score is between 0.0 and 1.0
+                confidence = judgment["confidence_score"]
+                if confidence > 1.0:
+                    judgment["confidence_score"] = 1.0
+                elif confidence < 0.0:
+                    judgment["confidence_score"] = 0.0
+                    
+                return judgment
+                
+            except json.JSONDecodeError as e:
+                # Enhanced fallback with more detailed error info
+                return {
+                    "verdict": "PARSING_ERROR",
+                    "confidence_score": 0.0,
+                    "reasoning": f"Failed to parse judge response as JSON. Error: {str(e)}. Raw response: {response_content[:200]}...",
+                    "issues_found": [f"JSON parsing error: {str(e)}"],
+                    "suggestions": ["Manual review required due to JSON parsing failure"]
+                }
+                
         except Exception as e:
-            # Generate fallback response when PandasAI fails
-            fallback_response = self.generate_fallback_response(dataframes_dict, query)
-            return {"type": "text", "content": f"PandasAI encountered an issue: {str(e)}\n\nFallback response:\n{fallback_response}"}
-    
+            return {
+                "verdict": "SYSTEM_ERROR",
+                "confidence_score": 0.0,
+                "reasoning": f"Error during judgment process: {str(e)}",
+                "issues_found": [f"Judge system error: {str(e)}"],
+                "suggestions": ["Manual review required due to system error"]
+            }    
+    def chat_with_data(self, agent: Agent, query, dataframes_dict: dict):
+            """Chat with Excel data using PandasAI with multiple dataframes and LLM judge verification"""
+            
+            # Check if agent is None
+            if agent is None:
+                return {
+                    "type": "text", 
+                    "content": "AI agent is not available. Please reload your file to initialize the agent."
+                }
+            
+            try:
+                # Get response from PandasAI agent
+                response = agent.chat(query)
+                
+                # Handle case when PandasAI returns None or empty response
+                if response is None or (isinstance(response, str) and response.strip() == ""):
+                    fallback_response = self.generate_fallback_response(dataframes_dict, query)
+                    return {"type": "text", "content": fallback_response}
+                
+                # Get explanation from agent
+                explanation = agent.explain()
+                print("*" * 100)
+                print("Explanation:", explanation)
+                print("*" * 100)
+                
+                # Prepare response object based on type
+                if isinstance(response, pd.DataFrame):
+                    response_obj = {"type": "dataframe", "content": response}
+                elif hasattr(response, 'savefig'):  # matplotlib figure
+                    response_obj = {"type": "plot", "content": response}
+                elif isinstance(response, (list, dict, int, float)):
+                    response_obj = {"type": "text", "content": str(response)}
+                else:
+                    response_obj = {"type": "text", "content": str(response)}
+                
+                # Get judgment from LLM judge
+                judgment = self.judge_response_quality(query, response_obj, explanation, dataframes_dict)
+                
+                # Add judgment and explanation to response
+                response_obj["explanation"] = explanation
+                response_obj["judgment"] = judgment
+                
+                # Log judgment results
+                print("*" * 100)
+                print(f"JUDGE VERDICT: {judgment.get('verdict', 'UNKNOWN')}")
+                print(f"CONFIDENCE: {judgment.get('confidence_score', 0.0)}")
+                print(f"REASONING: {judgment.get('reasoning', 'No reasoning provided')}")
+                print("*" * 100)
+                
+                return response_obj
+                
+            except Exception as e:
+                error_msg = str(e)
+                print(f"Error in chat_with_data: {error_msg}")
+                
+                # Generate fallback response when PandasAI fails
+                fallback_response = self.generate_fallback_response(dataframes_dict, query)
+                return {
+                    "type": "text", 
+                    "content": f"I encountered an issue processing your data query. Here's what I can tell you based on your data structure:\n\n{fallback_response}",
+                    "explanation": "Fallback response due to PandasAI error",
+                    "judgment": {
+                        "verdict": "ERROR",
+                        "confidence_score": 0.0,
+                        "reasoning": f"PandasAI error: {error_msg}",
+                        "issues_found": [error_msg],
+                        "suggestions": ["Try rephrasing your query or check data format"]
+                    }
+                }
+
     def generate_fallback_response(self, dataframes_dict, query):
         """Generate fallback response using LLM when PandasAI fails"""
         try:
@@ -246,40 +427,129 @@ class ExcelChatBot:
             
         except Exception as e:
             return {"type": "text", "content": f"Error in general chat: {str(e)}"}
-    
+
     def get_data_summary(self, dataframes_dict):
-        """Get summary of all sheets in the uploaded data"""
+        """Get summary of all sheets in uploaded dataframes"""
         total_rows = 0
         total_columns = 0
         total_memory = 0
         sheets_info = {}
-        
-        for sheet_name, df in dataframes_dict.items():
-            sheet_info = {
-                "rows": len(df),
-                "columns": len(df.columns),
+        for key, df in dataframes_dict.items():
+            rows = len(df)
+            cols = len(df.columns)
+            sheets_info[key] = {
+                "rows": rows,
+                "columns": cols,
                 "column_names": list(df.columns),
                 "data_types": df.dtypes.to_dict(),
                 "missing_values": df.isnull().sum().to_dict(),
                 "memory_usage": df.memory_usage(deep=True).sum()
             }
-            sheets_info[sheet_name] = sheet_info
-            
-            total_rows += sheet_info["rows"]
-            total_columns += sheet_info["columns"]
-            total_memory += sheet_info["memory_usage"]
-        
-        summary = {
+            total_rows += rows
+            total_columns += cols
+            total_memory += sheets_info[key]["memory_usage"]
+        return {
             "total_sheets": len(dataframes_dict),
             "total_rows": total_rows,
             "total_columns": total_columns,
             "total_memory_usage": total_memory,
             "sheets_info": sheets_info
         }
-        return summary
+        
+    def load_agent(self, dataframes_dict) -> Agent:
+        """Load PandasAI agent with multiple dataframes"""
+        dataframes_list = []
+        descriptions = []
+        for key, df in dataframes_dict.items():
+            dataframes_list.append(df)
+            # key = "filename - sheetname"
+            filename, sheet_name = key.split(' - ', 1)
+            # Full columns list, no truncation
+            cols = ', '.join(df.columns.tolist())
+            desc = f"Sheet/Dataframe '{sheet_name}': Contains {len(df)} rows and {len(df.columns)} columns. Columns: {cols}."
+            descriptions.append(desc)
+        
+        excel_files_info = ""
+        
+        print("*"*150)
+        print(excel_files_info)
+        print("*"*150)
+        
+        new_file_descriptions = """# Hotel Data Composition
+
+## Dataset Structure
+Data containing hotel revenue management data for **The Alex Hotel Dublin** (103 rooms):
+
+## File 1: Ideas Report - Daily Performance Data
+- **Property Sheet**: Daily metrics (occupancy, revenue, ADR, RevPAR, arrivals, departures, cancellations)
+- **Room Class Sheet**: Performance by room categories (Executive, Standard, Suite)
+- **Room Type Sheet**: Granular data by specific room codes (KS, EX, JS, etc.)
+- **Market Segment Sheet**: Breakdown by distribution channels (BAR, OTA, Corporate)
+- **Business View Sheet**: Revenue by rate categories and business segments
+- **Forecast Group Sheet**: Group booking projections and demand analysis
+
+## File 2: Onboarding Information - Reference Data
+- **Room Inventory**: 52 King Standard, 20 Twin, 26 Executive, 3 Junior Suites, 2 Alex Suites
+- **Segment Definitions**: BAR (0% commission), PROM (0%), OTA (18% commission)
+- **Budget Data**: Monthly targets by Group/Transient segments (CGR, CNI)
+- **Event Calendar**: Special events affecting demand patterns
+
+## Key Data Fields
+- **Financial**: Room revenue, ADR, RevPAR (current year, STLY, ST2Y comparisons)
+- **Operational**: Occupancy rates, capacity, bookings, cancellations, no-shows
+- **Forecasting**: Budget vs. actual, demand projections, overbooking levels
+- **Segmentation**: Group vs. transient, market segments, room categories
+
+## Time Dimensions
+- Daily operational data with historical comparisons (3-year trend)
+- Monthly budget planning data
+- Event-driven special periods"""
+
+        excel_files_info += new_file_descriptions
+
+        combined_description = f"""# Hotel Business Analysis Agent Instructions
+
+You are an AI assistant specialized in hotel business analysis and data interpretation.
+
+You have access to hotel business knowledge and the ability to analyze data from the following data composition:
+
+<data_info>
+{excel_files_info}
+</data_info>
+
+Your role: Data Analyst and Business Advisor
+
+**CRITICAL FOR EFFICIENCY**: For simple, direct queries (like "what is the budget for a specific month"), provide a CONCISE response without extensive analysis blocks. Use the streamlined approach below:
+
+**For Simple Budget/Data Queries:**
+1. Directly identify the relevant file and data needed from the schema
+2. Use the exact sheet names and column structures provided in the <data_info> schema
+3. Write efficient Python code using the schema information - DO NOT write exploratory code
+4. Execute once and provide the answer
+5. Skip extensive planning blocks for straightforward requests
+
+**For Complex Analysis Only:**
+Use the full analysis and planning structure with 5-point breakdown.
+
+**Key Data Handling Rules:**
+- Use the exact column names from the schema - months follow pattern: `2025-MM-01 00:00:00` (Rooms), `2025-MM-01 00:00:00.1` (Revenue), `2025-MM-01 00:00:00.2` (ADR)
+- Sheet name: 'Current Year Accom Budget'
+- Here in the user query, 'Books' are referred as 'Number of Bookings for Hotels'
+
+**IMPORTANT**: Use the schema documentation provided in <data_info> to identify exact column names and sheet structures. Do not write code to explore or discover the file structure.
+
+Always be direct and efficient. Avoid repetitive debugging unless absolutely necessary. """
+
+        agent = Agent(
+            dataframes_list, 
+            config={"llm": self.pandas_llm, "verbose": True, "save_logs": True},
+            description=combined_description,
+            memory_size=3 # conversation history pairs to be included set to 3
+        )    
+        return agent
 
 def display_message(message):
-    """Display a message in the chat interface"""
+    """Display a message in the chat interface with judge verdict and explanation"""
     if message["role"] == "user":
         st.markdown(f"""
         <div class="chat-message user-message">
@@ -296,19 +566,73 @@ def display_message(message):
         
         # Handle different response types
         if isinstance(message["content"], dict):
+            # Display the main content
             if message["content"]["type"] == "dataframe":
                 # Display DataFrame using st.dataframe
                 st.dataframe(message["content"]["content"], use_container_width=True)
             else:
                 # Display text content
                 st.markdown(message["content"]["content"])
+            
+            # Display explanation if available
+            if "explanation" in message["content"] and message["content"]["explanation"]:
+                with st.expander("🔍 Analysis Explanation", expanded=False):
+                    st.markdown(f"""
+                    <div class="explanation-section">
+                        <strong>How this analysis was performed:</strong><br>
+                        {message["content"]["explanation"]}
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            # Display judge verdict if available
+            if "judgment" in message["content"] and message["content"]["judgment"]:
+                judgment = message["content"]["judgment"]
+                verdict = judgment.get("verdict", "UNKNOWN")
+                confidence = judgment.get("confidence_score", 0.0)
+                reasoning = judgment.get("reasoning", "No reasoning provided")
+                
+                # Set verdict styling
+                verdict_class = ""
+                verdict_icon = ""
+                if verdict == "APPROVED":
+                    verdict_class = "approved"
+                    verdict_icon = "✅"
+                elif verdict == "REJECTED":
+                    verdict_class = "rejected"
+                    verdict_icon = "❌"
+                elif verdict == "ERROR":
+                    verdict_class = "rejected"
+                    verdict_icon = "⚠️"
+                else:
+                    verdict_icon = "❓"
+                
+                st.markdown(f"""
+                <div class="judge-verdict {verdict_class}">
+                    <strong>{verdict_icon} AI Judge Verdict: {verdict}</strong> 
+                    (Confidence: {confidence:.1%})<br>
+                    <em>{reasoning}</em>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Show issues and suggestions if available
+                if judgment.get("issues_found") or judgment.get("suggestions"):
+                    with st.expander("🔎 Detailed Judge Feedback", expanded=False):
+                        if judgment.get("issues_found"):
+                            st.markdown("**Issues Found:**")
+                            for issue in judgment["issues_found"]:
+                                st.markdown(f"• {issue}")
+                        
+                        if judgment.get("suggestions"):
+                            st.markdown("**Suggestions for Improvement:**")
+                            for suggestion in judgment["suggestions"]:
+                                st.markdown(f"• {suggestion}")
         else:
             # Handle legacy string responses
             st.markdown(str(message["content"]))
 
 def main():
-    st.title("📊 Multi-Sheet Excel Chat Assistant")
-    st.markdown("Chat with your Excel files and get instant insights from multiple sheets!")
+    st.title("📊 Multi-Sheet Excel Chat Assistant with AI Judge")
+    st.markdown("Chat with your Excel files and get AI-verified insights from multiple sheets!")
     
     # Initialize chatbot
     chatbot = ExcelChatBot()
@@ -320,52 +644,77 @@ def main():
         st.session_state.dataframes = None
     if "file_info" not in st.session_state:
         st.session_state.file_info = None
-    
+    if "agent" not in st.session_state:
+        st.session_state.agent = None
+    if "agent_loading" not in st.session_state:
+        st.session_state.agent_loading = False
+        
     # Sidebar for file upload and settings
     with st.sidebar:
         st.header("📁 File Upload")
-        uploaded_file = st.file_uploader(
-            "Upload your Excel file",
+        uploaded_files = st.file_uploader(
+            "Upload your Excel file(s)",
             type=['xlsx', 'xls'],
-            help="Upload an Excel file to start chatting with your data"
+            accept_multiple_files=True,
+            help="Upload one or more Excel files to start chatting with your data"
         )
-        
-        if uploaded_file is not None:
-            if st.session_state.dataframes is None or st.session_state.file_info["filename"] != uploaded_file.name:
-                with st.spinner("Loading Excel file and all sheets..."):
-                    dataframes = chatbot.load_excel_file(uploaded_file)
-                    if dataframes is not None:
+        if uploaded_files:
+            names = [f.name for f in uploaded_files]
+            if (st.session_state.file_info is None or
+                set(names) != set(st.session_state.file_info.get("filenames", []))):
+                with st.spinner("Loading Excel files and all sheets..."):
+                    dataframes = chatbot.load_excel_files(uploaded_files)
+                    if dataframes:
                         st.session_state.dataframes = dataframes
                         st.session_state.file_info = {
-                            "filename": uploaded_file.name,
+                            "filenames": names,
                             "summary": chatbot.get_data_summary(dataframes)
                         }
-                        st.success(f"File loaded successfully! Found {len(dataframes)} sheets.")
-        
+                        st.success(f"Loaded {len(names)} file(s) with {len(dataframes)} total sheets.")
+                        st.session_state.agent = None
+                        st.session_state.agent_loading = False
+                        
+                # Load agent only if dataframes exist and agent is not already loaded
+                if st.session_state.dataframes is not None and st.session_state.agent is None and not st.session_state.agent_loading:
+                    st.session_state.agent_loading = True
+                    with st.spinner("Initializing AI agent for data analysis..."):
+                        try:
+                            st.session_state.agent = chatbot.load_agent(st.session_state.dataframes)
+                            st.success("AI agent loaded successfully!")
+                            st.session_state.agent_loading = False
+                        except Exception as e:
+                            st.error(f"Error loading agent: {str(e)}")
+                            st.session_state.agent = None
+                            st.session_state.agent_loading = False
+
         # Display file information
         if st.session_state.file_info:
-            st.header("📋 File Information")
             info = st.session_state.file_info["summary"]
-            st.info(f"""
-            **File:** {st.session_state.file_info["filename"]}
-            **Total Sheets:** {info["total_sheets"]}
-            **Total Rows:** {info["total_rows"]:,}
-            **Total Columns:** {info["total_columns"]}
-            **Memory Usage:** {info["total_memory_usage"]/1024:.1f} KB
-            """)
+            st.info(f"**Files:** {', '.join(st.session_state.file_info['filenames'])}\n" +
+                    f"**Total Sheets:** {info['total_sheets']}  |  " +
+                    f"**Total Rows:** {info['total_rows']:,}  |  " +
+                    f"**Total Columns:** {info['total_columns']}  |  " +
+                    f"**Memory:** {info['total_memory_usage']/1024:.1f} KB")
             
-            # Display sheet details
+            if st.session_state.agent:
+                st.success("🤖 AI Agent: Ready")
+                st.success("⚖️ AI Judge: Ready")
+            elif st.session_state.agent_loading:
+                st.warning("🔄 AI Agent: Loading...")
+            else:
+                st.warning("⚠️ AI Agent: Not loaded")
+
             st.subheader("📄 Sheet Details")
-            for sheet_name, sheet_info in info["sheets_info"].items():
-                with st.expander(f"Sheet: {sheet_name}"):
+            for key, sheet_info in info['sheets_info'].items():
+                with st.expander(f"{key}"):
                     st.write(f"**Rows:** {sheet_info['rows']:,}")
                     st.write(f"**Columns:** {sheet_info['columns']}")
                     st.write(f"**Memory:** {sheet_info['memory_usage']/1024:.1f} KB")
-                    
                     st.write("**Column Details:**")
-                    for col, dtype in sheet_info["data_types"].items():
-                        missing = sheet_info["missing_values"][col]
+                    for col, dtype in sheet_info['data_types'].items():
+                        missing = sheet_info['missing_values'][col]
                         st.write(f"• **{col}:** {dtype} ({missing} missing)")
+
         
         # Clear chat button
         if st.button("🗑️ Clear Chat History"):
@@ -382,8 +731,22 @@ def main():
             for message in st.session_state.messages:
                 display_message(message)
         
-        # Chat input
-        user_input = st.chat_input("Ask me anything about your data or general questions...")
+        # Chat input - only enable if no data is loaded OR if agent is ready
+        chat_disabled = False
+        placeholder_text = "Ask me anything about your data or general questions..."
+        
+        if st.session_state.dataframes is not None:
+            if st.session_state.agent is None and not st.session_state.agent_loading:
+                chat_disabled = True
+                placeholder_text = "Please wait for the AI agent to load before asking data questions..."
+            elif st.session_state.agent_loading:
+                chat_disabled = True
+                placeholder_text = "AI agent is loading, please wait..."
+        
+        user_input = st.chat_input(
+            placeholder_text,
+            disabled=chat_disabled
+        )
         
         if user_input:
             # Add user message to history
@@ -393,13 +756,23 @@ def main():
             })
             
             # Process the query
-            with st.spinner("Thinking..."):
-                if st.session_state.dataframes is not None and chatbot.is_data_related_query(user_input):
-                    # Data-related query
-                    response = chatbot.chat_with_data(st.session_state.dataframes, user_input)
+            with st.spinner("Processing with AI verification..."):
+                # Check if this is a data-related query and if we have data loaded
+                if (st.session_state.dataframes is not None and 
+                    st.session_state.agent is not None and 
+                    chatbot.is_data_related_query(user_input)):
+                    # Data-related query with agent available
+                    response = chatbot.chat_with_data(st.session_state.agent, user_input, st.session_state.dataframes)
                 else:
-                    # General query
-                    response = chatbot.general_chat(user_input)
+                    # General query or no data/agent available
+                    if st.session_state.dataframes is not None and chatbot.is_data_related_query(user_input) and st.session_state.agent is None:
+                        # Data query but agent not available
+                        response = {
+                            "type": "text", 
+                            "content": "I'm sorry, but the AI agent for data analysis is not available. Please try reloading your file or ask a general question instead."
+                        }
+                    else:
+                        response = chatbot.general_chat(user_input)
                 
                 # Add assistant response to history
                 st.session_state.messages.append({
@@ -412,32 +785,66 @@ def main():
     with col2:
         # Sample queries
         st.subheader("💡 Sample Queries")
-        sample_queries = [
-            "What's the weather like today?",
-            "Explain machine learning",
-            "Show me all sheet names",
-            "What is the average Occupancy On Books This Year from 1st Jan 2025 to 1st May",
-            "what are total and unique market segments? Give me a list of all market segments",
-            "Show statistics for all sheets"
-        ]
         
+        # Different sample queries based on whether data is loaded
+        if st.session_state.dataframes is not None and st.session_state.agent is not None:
+            sample_queries = [
+                "What is my budget by segment ?",
+                "What events are happening in June?",
+                "What is the average Occupancy On Books This Year from 1st Jan 2025 to 1st May",
+                "what are total and unique market segments? Give me a list of all market segments",
+                "What is Revenue OTB for August versus STLY?",
+                "What is the current Occupancy for September OTB versus STLY?",
+                "What is the current ADR OTB for each month in 2025 compared to STLY last year?",
+                "What is the current Occupancy % OTB for each month in 2025 compared to STLY last year?",
+                "What are the rooms sold OTB for this year 2025 vs STLY?",
+                "What is RevPar for May OTB vs STLY?"     
+            ]
+        else:
+            sample_queries = [
+                "What's the weather like today?",
+                "Explain machine learning",
+                "What is quantum physics?",
+            ]
+                
         for query in sample_queries:
             if st.button(f"'{query}'", key=f"sample_{query}"):
-                st.session_state.messages.append({
-                    "role": "user",
-                    "content": query,
-                })
-                
+                # Check if we can process this query
+                can_process = True
                 if st.session_state.dataframes is not None and chatbot.is_data_related_query(query):
-                    response = chatbot.chat_with_data(st.session_state.dataframes, query)
-                else:
-                    response = chatbot.general_chat(query)
+                    if st.session_state.agent is None:
+                        can_process = False
                 
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": response,
-                })
-                st.rerun()
+                if can_process:
+                    st.session_state.messages.append({
+                        "role": "user",
+                        "content": query,
+                    })
+                    
+                    # Process the sample query
+                    with st.spinner("Processing with AI verification..."):
+                        if (st.session_state.dataframes is not None and 
+                            st.session_state.agent is not None and 
+                            chatbot.is_data_related_query(query)):
+                            response = chatbot.chat_with_data(st.session_state.agent, query, st.session_state.dataframes)
+                        else:
+                            response = chatbot.general_chat(query)
+                    
+                    # Create assistant message
+                    assistant_message = {
+                        "role": "assistant",
+                        "content": response,
+                    }
+                    
+                    # Add to session state
+                    st.session_state.messages.append(assistant_message)
+                    
+                    # Display the assistant response immediately
+                    display_message(assistant_message)
+                    
+                    st.rerun()
+                else:
+                    st.warning("Please wait for the AI agent to load before trying data queries.")
 
 if __name__ == "__main__":
     main()
