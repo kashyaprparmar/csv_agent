@@ -544,7 +544,7 @@ Always be direct and efficient. Avoid repetitive debugging unless absolutely nec
             dataframes_list, 
             config={"llm": self.pandas_llm, "verbose": True, "save_logs": True},
             description=combined_description,
-            memory_size=3 # conversation history pairs to be included set to 3
+            memory_size=6 # conversation history pairs to be included set to 3
         )    
         return agent
 
