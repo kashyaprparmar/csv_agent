@@ -32,7 +32,7 @@ A Streamlit application that allows you to upload multiple Excel files and chat 
 ## 🛠️ Installation
 
 ### Prerequisites
-- Python 3.9 or higher
+- Python 3.10 or higher
 - Google API Key (from [AI Studio](https://aistudio.google.com/))
 
 ### Setup Instructions
