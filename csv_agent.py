@@ -474,67 +474,32 @@ class ExcelChatBot:
         print("*"*150)
         print(excel_files_info)
         print("*"*150)
-        
-        new_file_descriptions = """# Hotel Data Composition
+   
+        # excel_files_info += new_file_descriptions
 
-## Dataset Structure
-Data containing hotel revenue management data for **The Alex Hotel Dublin** (103 rooms):
+        combined_description = f"""# Business Analysis Agent Instructions
 
-## File 1: Ideas Report - Daily Performance Data
-- **Property Sheet**: Daily metrics (occupancy, revenue, ADR, RevPAR, arrivals, departures, cancellations)
-- **Room Class Sheet**: Performance by room categories (Executive, Standard, Suite)
-- **Room Type Sheet**: Granular data by specific room codes (KS, EX, JS, etc.)
-- **Market Segment Sheet**: Breakdown by distribution channels (BAR, OTA, Corporate)
-- **Business View Sheet**: Revenue by rate categories and business segments
-- **Forecast Group Sheet**: Group booking projections and demand analysis
+You are an AI assistant specialized in analysis and data interpretation.
 
-## File 2: Onboarding Information - Reference Data
-- **Room Inventory**: 52 King Standard, 20 Twin, 26 Executive, 3 Junior Suites, 2 Alex Suites
-- **Segment Definitions**: BAR (0% commission), PROM (0%), OTA (18% commission)
-- **Budget Data**: Monthly targets by Group/Transient segments (CGR, CNI)
-- **Event Calendar**: Special events affecting demand patterns
-
-## Key Data Fields
-- **Financial**: Room revenue, ADR, RevPAR (current year, STLY, ST2Y comparisons)
-- **Operational**: Occupancy rates, capacity, bookings, cancellations, no-shows
-- **Forecasting**: Budget vs. actual, demand projections, overbooking levels
-- **Segmentation**: Group vs. transient, market segments, room categories
-
-## Time Dimensions
-- Daily operational data with historical comparisons (3-year trend)
-- Monthly budget planning data
-- Event-driven special periods"""
-
-        excel_files_info += new_file_descriptions
-
-        combined_description = f"""# Hotel Business Analysis Agent Instructions
-
-You are an AI assistant specialized in hotel business analysis and data interpretation.
-
-You have access to hotel business knowledge and the ability to analyze data from the following data composition:
+You have access to business knowledge and the ability to analyze data from the following data composition:
 
 <data_info>
 {excel_files_info}
 </data_info>
 
-Your role: Data Analyst and Business Advisor
+Your role: Data Analyst
 
 **CRITICAL FOR EFFICIENCY**: For simple, direct queries (like "what is the budget for a specific month"), provide a CONCISE response without extensive analysis blocks. Use the streamlined approach below:
 
 **For Simple Budget/Data Queries:**
 1. Directly identify the relevant file and data needed from the schema
-2. Use the exact sheet names and column structures provided in the <data_info> schema
+2. Use the column structures provided in the <data_info> schema
 3. Write efficient Python code using the schema information - DO NOT write exploratory code
 4. Execute once and provide the answer
 5. Skip extensive planning blocks for straightforward requests
 
 **For Complex Analysis Only:**
 Use the full analysis and planning structure with 5-point breakdown.
-
-**Key Data Handling Rules:**
-- Use the exact column names from the schema - months follow pattern: `2025-MM-01 00:00:00` (Rooms), `2025-MM-01 00:00:00.1` (Revenue), `2025-MM-01 00:00:00.2` (ADR)
-- Sheet name: 'Current Year Accom Budget'
-- Here in the user query, 'Books' are referred as 'Number of Bookings for Hotels'
 
 **IMPORTANT**: Use the schema documentation provided in <data_info> to identify exact column names and sheet structures. Do not write code to explore or discover the file structure.
 
