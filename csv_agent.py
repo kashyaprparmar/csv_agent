@@ -758,16 +758,13 @@ def main():
         # Different sample queries based on whether data is loaded
         if st.session_state.dataframes is not None and st.session_state.agent is not None:
             sample_queries = [
-                "What is my budget by segment ?",
-                "What events are happening in June?",
-                "What is the average Occupancy On Books This Year from 1st Jan 2025 to 1st May",
-                "what are total and unique market segments? Give me a list of all market segments",
-                "What is Revenue OTB for August versus STLY?",
-                "What is the current Occupancy for September OTB versus STLY?",
-                "What is the current ADR OTB for each month in 2025 compared to STLY last year?",
-                "What is the current Occupancy % OTB for each month in 2025 compared to STLY last year?",
-                "What are the rooms sold OTB for this year 2025 vs STLY?",
-                "What is RevPar for May OTB vs STLY?"     
+                "What is my budget per product in 2025?",
+                "Show me the average sales for each month",
+                "What are the best selling products?",
+                "Compare revenue between this year and last year",
+                "What is the correlation between price and quantity?",
+                "Show me the top 5 customers by sales",
+                "Filter data where sales is greater than 1000"
             ]
         else:
             sample_queries = [

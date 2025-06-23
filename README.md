@@ -1,163 +1,240 @@
-# 📊 Multi-Sheet Excel Chat Assistant
+# 📊 Multi-Sheet Excel Chat Assistant with AI Judge
 
-A powerful Streamlit application that allows you to chat with your Excel files using AI. Upload your Excel file and ask questions about your data in natural language!
+A Streamlit application that allows you to upload multiple Excel files and chat with your data using natural language queries. The application leverages Google's Gemini 2.5 Flash, PandasAI, and includes an innovative AI Judge system for response verification.
 
 ## ✨ Features
 
-- **Multi-Sheet Support**: Works with Excel files containing multiple worksheets
+### 🔍 Core Functionality
+- **Multi-File Support**: Upload and analyze multiple Excel files simultaneously
+- **Multi-Sheet Processing**: Automatically processes all sheets within each Excel file
 - **Natural Language Queries**: Ask questions about your data in plain English
-- **Data Analysis**: Get insights, statistics, and visualizations from your data
-- **General Chat**: Also works as a general-purpose AI assistant
-- **Real-time Processing**: Instant responses to your queries
-- **Interactive UI**: Clean and user-friendly interface
+- **Intelligent Query Routing**: Automatically determines whether queries are data-related or general
 
-## 🚀 Getting Started
+### 🤖 AI-Powered Analysis
+- **Google Gemini Integration**: Uses Gemini 2.5 Flash for advanced language understanding
+- **PandasAI Agent**: Specialized data analysis with conversation memory
+- **AI Judge System**: Automatic verification of response quality and accuracy
+- **Smart Fallback**: Graceful handling when primary analysis fails
+
+### 📈 Data Visualization & Analysis
+- **Interactive DataFrames**: View results in formatted tables
+- **Statistical Analysis**: Perform complex calculations and aggregations
+- **Data Summaries**: Automatic generation of data structure insights
+- **Memory Optimization**: Efficient handling of large datasets
+
+### 🎨 User Interface
+- **Modern Design**: Clean, responsive Streamlit interface
+- **Real-time Chat**: Interactive chat interface with message history
+- **File Information Panel**: Detailed overview of uploaded files and sheets
+- **Sample Queries**: Pre-built example queries for quick testing
+- **Judge Verdict Display**: Visual feedback on response quality
+
+## 🛠️ Installation
 
 ### Prerequisites
+- Python 3.9 or higher
+- Google API Key (from [AI Studio](https://aistudio.google.com/))
 
-- Python >=3.10 and <=3.12
-- Google API Key (Gemini AI)
+### Setup Instructions
 
-### Installation
-
-1. **Clone or download this repository**
-
-2. **Install required packages**:
+1. **Clone the repository**
    ```bash
-   pip install streamlit pandas langchain-google-genai pandasai openpyxl
+   git clone <repository-url>
+   cd excel-chat-assistant
    ```
 
-3. **Get your Google API Key**:
-   - Go to [Google AI Studio](https://aistudio.google.com/)
-   - Create an account and generate an API key
-   - Keep this key handy - you'll need it to run the app
-
-### Running the Application
-
-1. **Start the Streamlit app**:
+2. **Install dependencies**
    ```bash
-   streamlit run app.py
+   pip install -r requirements.txt
    ```
 
-2. **Open your browser** and go to `http://localhost:8501`
+3. **Set up Google API Key**
+   
+   Choose one of these methods:
+   
+   **Option A: Environment Variable**
+   ```bash
+   export GOOGLE_API_KEY="your-api-key-here"
+   ```
+   
+   **Option B: Streamlit Secrets**
+   Create `.streamlit/secrets.toml`:
+   ```toml
+   GOOGLE_API_KEY = "your-api-key-here"
+   ```
+   
+   **Option C: In-App Input**
+   Enter your API key directly in the sidebar when prompted
 
-3. **Enter your Google API Key** in the sidebar when prompted
+4. **Run the application**
+   ```bash
+   streamlit run main.py
+   ```
 
-4. **Upload your Excel file** using the file uploader
+## 🚀 Usage
 
-5. **Start chatting** with your data!
+### Getting Started
 
-## 📝 How to Use
+1. **Launch the Application**
+   - Run the Streamlit app and open it in your browser
+   - Enter your Google API Key if not already configured
 
-### Uploading Files
-- Click on "Upload your Excel file" in the sidebar
-- Select your `.xlsx` or `.xls` file
-- The app will automatically load all sheets and display file information
+2. **Upload Excel Files**
+   - Use the sidebar file uploader to select one or more Excel files (.xlsx, .xls)
+   - The app will automatically process all sheets in each file
+   - Wait for the AI agent to initialize (shown in sidebar status)
 
-### Asking Questions
+3. **Start Chatting**
+   - Type your questions in the chat input at the bottom
+   - Use either data-specific queries or general questions
+   - View responses with AI judge verification
 
-**Data-related queries** (when you have a file uploaded):
-- "Show me the first 10 rows of data"
-- "What are the column names in Sheet1?"
-- "Calculate the average of the Sales column"
-- "Show me statistics for all sheets"
-- "Plot a chart of Revenue by Month"
+#### Example Data Analysis Queries
+```
+- "What is my budget per product in 2025?"
+- "Show me the average sales for each month"
+- "What are the best selling products?"
+- "Compare revenue between this year and last year"
+- "What is the correlation between price and quantity?"
+- "Show me the top 5 customers by sales"
+- "Filter data where sales is greater than 1000"
+```
 
-**General queries**:
-- "What's the weather like today?"
-- "Explain machine learning"
-- "Write a Python function to sort a list"
 
-### Sample Data Queries
+## 🏗️ Architecture
 
-The app includes sample query buttons to help you get started:
-- Show sheet information
-- Get data statistics
-- Analyze specific columns
-- Filter and group data
+### Core Components
 
-## 🔧 Features Explained
+1. **ExcelChatBot Class**
+   - Main orchestrator for all functionality
+   - Handles model initialization and API management
+   - Routes queries between data analysis and general chat
 
-### Smart Query Detection
-The app automatically detects whether your question is about the uploaded data or a general inquiry, routing it to the appropriate AI model.
+2. **Multi-Model System**
+   - **Chat Model**: Gemini 2.5 Flash for general conversation
+   - **Judge Model**: Lower temperature Gemini for consistent evaluation
+   - **PandasAI Agent**: Specialized data analysis with conversation memory
 
-### Multi-Sheet Analysis
-- View information about all sheets in your Excel file
-- Ask questions across multiple sheets
-- Get combined analysis results
+3. **AI Judge System**
+   - Evaluates response accuracy and completeness
+   - Provides confidence scores and detailed feedback
+   - Offers suggestions for improvement
 
-### Data Visualization
-- Generate charts and plots from your data
-- View data in formatted tables
-- Get statistical summaries
-
-### Error Handling
-- Fallback responses when data analysis fails
-- Clear error messages
-- Graceful handling of various file formats
-
-## 📊 File Information Display
-
-The sidebar shows detailed information about your uploaded file:
-- Total number of sheets
-- Row and column counts
-- Memory usage
-- Column data types
-- Missing value counts
-
-## 🛠️ Technical Details
-
-- **Frontend**: Streamlit
-- **AI Models**: Google Gemini (via LangChain)
-- **Data Analysis**: PandasAI
-- **File Processing**: Pandas, OpenPyXL
-- **Styling**: Custom CSS for enhanced UI
-
-## 🔒 Privacy & Security
-
-- Your API key is stored only in the session
-- Files are processed locally and temporarily
-- No data is permanently stored
-- Temporary files are automatically cleaned up
-
-## 📋 Requirements
+### Data Processing Pipeline
 
 ```
-streamlit
-pandas
-langchain-google-genai
-pandasai
-openpyxl
+Excel Files → Multi-Sheet Extraction → DataFrame Creation → 
+Agent Initialization → Query Processing → AI Judge Verification → 
+Response Display
 ```
+
+## 📋 Key Features Explained
+
+### AI Judge System
+
+The AI Judge is a unique feature that automatically evaluates every data-related response based on:
+
+- **Accuracy**: Correctness of the analysis
+- **Completeness**: Sufficiency of information provided
+- **Data Usage**: Appropriate use of available data
+- **Methodology**: Soundness of analytical approach
+- **Clarity**: Understandability of the response
+
+Each response receives:
+- ✅ **APPROVED**: High-quality, accurate response
+- ❌ **REJECTED**: Issues found, needs review
+- ⚠️ **ERROR**: System error occurred
+- ❓ **UNKNOWN**: Unable to determine quality
+
+### Smart Query Routing
+
+The system intelligently determines query types:
+- **Data-related**: Routed to PandasAI agent with judge verification
+- **General**: Handled by Gemini chat model
+- **Hybrid**: Context-aware processing
+
+### Memory & Performance
+
+- **Conversation Memory**: Agent remembers previous interactions (6 message pairs)
+- **Efficient Loading**: Optimized DataFrame processing
+- **Memory Monitoring**: Real-time memory usage tracking
+- **Error Handling**: Graceful fallbacks for all failure scenarios
+
+## 🔧 Configuration
+
+### Environment Variables
+
+```bash
+GOOGLE_API_KEY=your_google_api_key_here
+```
+
+### Streamlit Configuration
+
+The app includes custom CSS styling and responsive design. You can modify the appearance by editing the CSS in the `st.markdown()` sections.
+
+### Model Configuration
+
+- **Chat Model**: `gemini-2.5-flash-preview-05-20` (Temperature: 0.7)
+- **Judge Model**: Same model with lower temperature (0.1) for consistency
+- **Agent Memory**: 6 conversation pairs retained
 
 ## 🐛 Troubleshooting
 
-**Common Issues:**
+### Common Issues
 
-1. **API Key Error**: Make sure you've entered a valid Google API key
-2. **File Upload Error**: Ensure your Excel file is not corrupted and has readable sheets
-3. **Query Not Working**: Try rephrasing your question or use the sample queries
-4. **Slow Response**: Large files may take longer to process
+**API Key Not Working**
+- Verify your API key is valid and has proper permissions
+- Check that the key is correctly set in environment or secrets
 
-**Getting Help:**
-- Check the error messages in the app
-- Try sample queries to test functionality
-- Ensure your Excel file has proper data formatting
+**Agent Loading Fails**
+- Ensure your Excel files are properly formatted
+- Check for corrupted or empty sheets
+- Verify sufficient system memory
 
-## 🚀 Tips for Best Results
+**Poor Response Quality**
+- Try rephrasing your query more specifically
+- Check the AI Judge feedback for improvement suggestions
+- Ensure your data contains the information you're asking about
 
-1. **Clear Questions**: Be specific about what you want to analyze
-2. **Column Names**: Use exact column names from your data
-3. **Sheet References**: Mention specific sheet names when needed
-4. **Data Types**: Ensure your data is properly formatted in Excel
+**Performance Issues**
+- Large files may take longer to process
+- Consider breaking down complex queries
+- Monitor memory usage in the sidebar
 
-## 📈 Example Use Cases
+### Error Messages
 
-- **Business Analytics**: Analyze sales data, customer information, financial reports
-- **Research Data**: Process survey results, experimental data, statistical analysis
-- **Personal Finance**: Track expenses, budget analysis, investment tracking
-- **Project Management**: Analyze project timelines, resource allocation, progress tracking
+- **"AI agent is not available"**: Wait for agent initialization to complete
+- **"Parsing error"**: Try rephrasing your query or check data format
+- **"System error"**: Check your API key and internet connection
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests.
+
+### Development Setup
+
+1. Fork the repository
+2. Create a virtual environment
+3. Install dependencies in development mode
+4. Make your changes
+5. Test thoroughly
+6. Submit a pull request
+
+## Acknowledgments
+
+- **Google Gemini AI** for powerful language understanding
+- **PandasAI** for intelligent data analysis capabilities
+- **Streamlit** for the excellent web app framework
+- **LangChain** for AI model orchestration
+
+## 📞 Support
+
+For support, issues, or feature requests, please:
+1. Check the troubleshooting section above
+2. Review existing issues in the repository
+3. Create a new issue with detailed information
+4. Include error messages and steps to reproduce
 
 ---
 
-**Note**: This application requires an active internet connection to communicate with Google's Gemini AI service.
+**Built with ❤️ for data analysts, business users, and anyone who wants to chat with their Excel data!**
