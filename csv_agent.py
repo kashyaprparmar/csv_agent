@@ -100,6 +100,10 @@ class ExcelChatBot:
         
     def setup_api_key(self):
         """Setup Google API key from environment or user input"""
+        api_key = st.secrets.get("GOOGLE_API_KEY")
+        if not api_key:
+            api_key = os.getenv("GOOGLE_API_KEY")
+
         api_key = os.getenv("GOOGLE_API_KEY")
 
         if not api_key:
